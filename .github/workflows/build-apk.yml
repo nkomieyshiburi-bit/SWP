@@ -13,9 +13,33 @@ jobs:
       - name: Get SWP project
         uses: actions/checkout@v4
 
-      - name: Extract Android project
+      - name: Find and extract SWP project
         run: |
-          unzip -o SWP_Android_GitHub_Build.zip -d swp_project
+          ZIP=$(find . -maxdepth 2 -type f -name "SWP_Live_Signals_Android_READY.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "SWP ZIP not found"
+            find . -maxdepth 3 -type f
+            exit 1
+          fi
+
+          echo "Found: $ZIP"
+          mkdir -p swp_project
+          unzip -o "$ZIP" -d swp_project
+
+      - name: Find Android project
+        run: |
+          GRADLE=$(find swp_project -type f -name "gradlew" | head -n 1)
+
+          if [ -z "$GRADLE" ]; then
+            echo "gradlew not found"
+            find swp_project -maxdepth 4 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -23,21 +47,32 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
 
-      - name: Build SWP APK
-        working-directory: swp_project
+      - name: Build SWP Debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          gradle assembleDebug --no-daemon
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Find APK
+        run: |
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK was not created"
+            exit 1
+          fi
+
+          echo "APK found: $APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
       - name: Upload SWP APK
         uses: actions/upload-artifact@v4
         with:
-          name: SWP-apk
-          path: swp_project/app/build/outputs/apk/debug/app-debug.apk
+          name: SWP-Live-Signals-APK
+          path: ${{ env.APK_PATH }}
